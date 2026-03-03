@@ -1,0 +1,255 @@
+---
+title: "NYPD Shooting Incident Data Report"
+output:
+  pdf_document: default
+  html_document: default
+date: "2026-01-21"
+name: "Noah Ceremony"
+---
+Name: Noah Ceremony
+
+
+First I am importing the tidyverse and zoo packages into R. I am not showing the code from this section, only the output/confirmation.
+
+
+```{r echo = FALSE}
+
+library(tidyverse)
+library(zoo)
+
+```
+
+
+Next, we will begin by importing the data needed for this report. First we will upload the NYPD shooting data from the provided URL and then we will upload the weather data from the NOAA website. The weather data is not necessary to upload in order to analyze the shooting data however I am using it in a visualization below so I should upload it now. 
+
+
+# IMPORT NYPD SHOOTING DATA
+
+```{r echo=TRUE, results='hide'}
+
+url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+
+ny_shooting_data <- read_csv(url)
+
+```
+
+# IMPORT WEATHER DATA
+
+Note: URL for weather data was originally used to import data however the NOAA website was having issues when I was trying to knit the markdown file. I've included the URL as "url_w" however I used the local downloaded csv in my code. If you are trying to reproduce this, please use "url_w" to call the weather data. 
+
+```{r echo=TRUE}
+
+url_w <- "https://www.ncei.noaa.gov/data/global-summary-of-the-month/access/USW00094728.csv"
+weather_csv = "/Users/noahceremony/Downloads/USW00094728.csv"
+
+weather <- 
+  read_csv(weather_csv)
+
+```
+
+
+
+# TIDYING, VISUALIZING, AND MODELING THE DATA
+
+Below are three analyses and visualizations of portions of the NYPD Shooting data that I found interesting. All of these selected regions of the data were chosen for no reason other than that I thought a look at them would be interesting. All of these analyses contain my unintended bias due to the fact that I found them interesting things to observe in the first place. First, we look at murders per borough to see the distribution of murders across all five boroughs. Next we move on to comparing muders over time and temperature over time to see if they are at all correlated. Finally, we take a look at all shootings, murder or not, and we look at the time of day they took place. 
+
+
+
+
+## MURDERS PER BOROUGH (MODEL & VISUALIZATION)
+
+Here we are taking a look at murders per nyc borough. The data from the graph suggests that the places with the highest amout of murders are historically the Bronx and Brooklyn. Furthering this analysis, I constructed a table based on the raw data showing the percentage of shootings that are considered murders in each borough. To look at this in a different way, and to see if a model showed the same thing, I created a model using the generalized linear model function. Below is a summary of the results from the model and a table where the "Estimate" column is translated to percentage of shootings that are considered murder in each borough. As you can observe, the model and the table from the raw data match up exactly. It is interesting that although there are more murders in certain boroughs, the murder percentages all hover around 19%. Bias in this analysis could come up through the assumption that boroughs are important definitions of space in NYC as there could be different ways to break down physical space that show a different result. Also, percentage of shootings that are murders may imply something about an area that is not necessarily true. Below is the code I used to tidy the data and create the tables and visualizations. 
+
+```{r}
+# Murders per borough table
+murders_per_boro <- ny_shooting_data %>% 
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE)) %>% 
+  select(INCIDENT_KEY,OCCUR_DATE, BORO,
+         PRECINCT,MURDER = STATISTICAL_MURDER_FLAG) %>% 
+  arrange(BORO) %>% 
+  group_by(BORO) %>% 
+  summarize(MURDER_COUNT = sum(MURDER),NON_MURDER = sum(!MURDER),
+            MURDER_PERCENTAGE = 100*(sum(MURDER)/(sum(!MURDER)+sum(MURDER))))
+# Sum of a lgl column is summing TRUE values
+
+murders_per_boro
+
+
+# Generalized linear model looking at murders per borough
+mod <- glm(ny_shooting_data$STATISTICAL_MURDER_FLAG~ny_shooting_data$BORO, data = ny_shooting_data,family = binomial())
+s <- summary(mod)
+s
+
+# Conversion of "Estimate" column in summary above into percentages
+base <- s$coefficients["(Intercept)","Estimate"]
+bronx <- plogis(base)
+brooklyn <- plogis(base - s$coefficients["ny_shooting_data$BOROBROOKLYN","Estimate"])
+manhattan <- plogis(base + s$coefficients["ny_shooting_data$BOROMANHATTAN","Estimate"])
+queens <- plogis(base + s$coefficients["ny_shooting_data$BOROQUEENS","Estimate"])
+staten_island <- plogis(base + s$coefficients["ny_shooting_data$BOROSTATEN ISLAND","Estimate"])
+
+MURDER_PERCENTAGES <- 100* c(bronx,brooklyn,manhattan,queens,staten_island)
+BOROUGHS <- c("Bronx","Brooklyn","Manhattan","Queens","Staten Island")
+df <- data.frame(BOROUGHS, MURDER_PERCENTAGES)
+df
+
+# Murders per borough plot
+murders_per_boro %>% 
+  ggplot(aes(x = BORO, y = MURDER_COUNT)) +
+  geom_bar(stat = "identity") + 
+  labs(title = "Murders Per Borough (2006 - 2004)", y = "Murders", x = "Borough")
+
+```
+
+
+## MURDERS VS AVERAGE TEMPERATURE
+
+Here we are looking at murders per month and average temperature per month from 2006 to 2024. Average temperature per month was taken from the National Oceanic and Atmospheric Administration (NOAA) website and each temperature reading was taken at Central Park. Though the New York area is much larger than just Central Park, and the weather fluctuates over this area, the average temperature at this point is serving as an average temperature for the entire New York area in this analysis. On the line graph below, murders are shown by the orange line and temperature is shown by the blue line. We can see from the graph that there is a clear correlation between murders and temperature. As temperature rises, murders rise and as temperatures fall, murders fall as well. Bias in this analysis could come from the average temperature being recorded in Central Park. A more comprehnsive average temperature of the New York area could cause different results. Below is the code I used to create the tables, and the line graph. 
+
+```{r}
+
+# Murders per month table
+murders_per_month <- ny_shooting_data %>% 
+  mutate(OCCUR_DATE = mdy(OCCUR_DATE),
+         YEAR_MONTH = as.yearmon(OCCUR_DATE)) %>% 
+  group_by(YEAR_MONTH) %>% 
+  summarise(MURDERS_PER_MONTH = sum(STATISTICAL_MURDER_FLAG)) 
+
+# Average temperature per month table
+temp_per_month <- weather %>% 
+  select(DATE, TAVG) %>% 
+  mutate(DATE = as.yearmon(DATE)) %>% 
+  filter(DATE >= as.yearmon("2006-01")) %>% 
+  head(-12)  
+
+
+murders_per_month
+temp_per_month
+
+# Plot
+ggplot() +
+  scale_color_manual(
+    values = c("Murders" = "orange1", "Temperature (°C)" = "deepskyblue")) +
+  geom_line(data = murders_per_month, 
+            aes(x = YEAR_MONTH, y = MURDERS_PER_MONTH, color = "Murders")) +
+  geom_line(data = temp_per_month, 
+            aes(x = DATE, y = TAVG , color = "Temperature (°C)")) + 
+  labs(title = "Monthly Murders vs Average Monthly Temperature in NYC (2006 - 2024)", 
+       y = "Murders & Temperature (°C)", 
+       x = "Months",
+       color = "Legend") +
+  theme_minimal()
+
+# Shootings per month (unused)
+#shootings_per_month <- ny_shooting_data %>% 
+#  mutate(
+#    OCCUR_DATE = mdy(OCCUR_DATE),
+#    YEAR_MONTH = as.yearmon(OCCUR_DATE)
+#  ) %>% 
+#  group_by(YEAR_MONTH) %>% 
+#  summarise(SHOOTINGS = n(), .groups = "drop")
+#
+# "Shootings" = "red",
+# geom_line(data = shootings_per_month, aes(x = YEAR_MONTH, y = SHOOTINGS, color = "Shootings")) +
+
+
+
+```
+
+
+
+## SHOOTINGS VS AVERAGE TEMPERATURE MODEL
+
+For this next section I decided to use a linear regression model to understand the relationship between shootings per month and monthly temperature in NYC from 2006 - 2004. While I had an idea of what this trend would be from the Murders vs Average Temperature visualization above, I wanted to test this with a model and broaden it from only murders to shootings overall. From the scatterplot below we can see that there is a positive correlation between temperature and shootings. Each point on the graph represents a single observation (average shootings for a single month and that months average temperature) and the orange line represents a best fit line. The points cluster around the line and have a relatively tight scatter. Below I've created two models but only one graph, the fist model is the the model that is plotted which looks at temperature and shootings and the second model is the same however it adjust for time. While creating this, the question of if the increase in shootings is just due to time came up. This would be considered a form of bias stemming from a time variable. From our graph above we clearly can see that it is not a product of time but to check this with a model I created 'Linear Model 2.' Our results from both models show a slope of 3.6 (Model 1) and 3.7 (Model 2), suggesting that time is not a substantial factor in the relationship between temperature and shootings. 
+
+
+```{r}
+
+# Shootings per month table
+shootings_per_month <- ny_shooting_data %>% 
+  mutate(
+    OCCUR_DATE = mdy(OCCUR_DATE),
+    YEAR_MONTH = as.yearmon(OCCUR_DATE)
+  ) %>% 
+  group_by(YEAR_MONTH) %>% 
+  summarise(SHOOTINGS = n(), .groups = "drop")
+
+# Shootings + Temp
+merged_weather_shootings <- shootings_per_month %>% 
+  inner_join(temp_per_month, by = c("YEAR_MONTH" = "DATE")) %>%
+  arrange(YEAR_MONTH) %>%
+  mutate(TIME_INDEX = row_number())
+
+head(merged_weather_shootings)
+
+# Linear Model 1
+lm_model <- lm(SHOOTINGS ~ TAVG, data = merged_weather_shootings)
+summary(lm_model)
+coef(lm_model)
+
+# Linear Model 2
+lm_model2 <- lm(SHOOTINGS ~ TAVG + TIME_INDEX, data = merged_weather_shootings)
+summary(lm_model2)
+coef(lm_model2)
+
+# Plot
+ggplot(merged_weather_shootings, aes(x = TAVG, y = SHOOTINGS)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "orange1") +
+  labs(
+    title = "Monthly Shootings vs Average Monthly Temperature in NYC (2006 - 2024)",
+    x = "Average Monthly Temperature (°C)",
+    y = "Total Shootings per Month"
+  ) +
+  theme_minimal()
+
+```
+
+
+## SHOOTINGS PER HOUR
+
+Finally we take a look at what hour shootings occur at. Below we can see the amount of shootings that have happened in each hour of the day from 2006 to 2024. As you can see, most shootings occur during hours where there is less sunlight with the peak hovering around 10:00 PM - 2:00 AM. Shootings that were not considered a murder are seen in blue while shootings that were considered a murder can be seen in red. Clearly there are many more shootings that are not considered a murder in NYC. Bias in this analysis could come from looking at shootings on a per hour basis. What else happens during the hours we see peak shootings in other than it's dark? Understanding more about what is happening during each hour of the day in NYC could curb bias. Below is the code used to select for the data and visualize the bar graph. 
+
+```{r}
+
+# Shootings per hour table
+shootings_per_hour <- ny_shooting_data %>% 
+  select(STATISTICAL_MURDER_FLAG,OCCUR_TIME) %>%
+group_by(OCCUR_TIME) %>% 
+  summarise(MURDER = sum(STATISTICAL_MURDER_FLAG),
+            NON_MURDER = sum(!STATISTICAL_MURDER_FLAG))
+shootings_per_hour
+
+# Plot
+ny_shooting_data %>% 
+  ggplot(aes(x = OCCUR_TIME, 
+             fill = !STATISTICAL_MURDER_FLAG)) +
+  geom_histogram(bins = 24, color = "black") +
+  guides(fill = guide_legend(title = "")) +
+  scale_fill_hue(labels = c("Shooting considered murder",
+                            "Shooting not considered murder")) +
+  labs(title = "Time of Shooting", 
+       y = "Count", 
+       x = "Hours of the Day") +
+  theme(legend.position = "bottom")
+
+
+```
+
+
+# CONCLUSION 
+
+
+In conclusion, it is clear that shootings and murders in NYC are highly variable but follow certain trends. For example, from our analysis, shootings seem to happen more in the Bronx and Brooklyn than in the rest of the five boroughs. Shootings and murders also seem to happen more often at night as seen by our last bar graph. Whether a shooting ends up being a murder is a bit more complicated. From our model we can see that murder percentages are relatively the same across all five boroughs even though certain boroughs have more shootings; suggesting maybe this is telling us something about the nature of a gunshot wound and the survival rate after being shot rather than something about the borough. We can see that more murders happen in summer and we can see from our second model that all shootings increase when the temperature rises as well. In the last graph where we look at time of day of shootings, we see an increase in murder percentages at night. This is interesting and begs the question what about night time makes a shooting more probable to be a murder? 
+
+When thinking about bias, I have described possible personal unconscious biases under each description however I am sure there are more biases than I listed. 
+
+This analysis brings up many questions and possibilities for future analysis. The NYPD shooting data set will not have all the answers to the questions it brings up. We can see from the weather data that understanding other factors, human or not, will begin to give us a better picture of NYC Shootings, why they happen, and how they can be prevented.
+
+
+
+
+
+
+
+
